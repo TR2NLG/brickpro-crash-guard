@@ -7,11 +7,14 @@
 #   1. keeps a short boot log and per boot snapshots of logs and settings,
 #   2. saves new kernel crash records (pstore) to crash-guard/crashes/,
 #   3. after a crash, puts recent.txt and minuisettings.txt back from the
-#      snapshot taken before NextUI could damage them.
+#      snapshot taken before NextUI could damage them,
+#   4. detects starts after the power was cut (a power off that did not
+#      complete and needed a long press reset, or an empty battery) and
+#      records them in crash-guard/events.log.
 # msettings.bin cannot be repaired here, because keymon has already loaded it.
 # For that, use Tools > Restore Settings.
 
-CG_VERSION="1.0.1"
+CG_VERSION="1.0.2"
 CG="$USERDATA_PATH/crash-guard"
 SHARED="$SHARED_USERDATA_PATH"
 RECENT="$SHARED/.minui/recent.txt"
@@ -40,6 +43,15 @@ ARCH="$CG/archive/$STAMP"
 mkdir -p "$ARCH"
 PREV=$((N - 1))
 PREV_ARCH="$CG/archive/$(printf "%04d" "$PREV")"
+
+kernel_log() {
+	if [ -n "$CRASH_GUARD_DMESG" ]; then cat "$CRASH_GUARD_DMESG"; else dmesg 2>/dev/null; fi
+}
+KLOG=$(kernel_log)
+
+log_event() {
+	echo "$(date '+%Y-%m-%d %H:%M') boot $N: $1" >> "$CG/events.log"
+}
 
 msg() {
 	show2.elf --mode=simple --image="$LOGO" --text="$1" --timeout="${2:-3}" > /dev/null 2>&1
@@ -71,7 +83,24 @@ if [ -n "$NEW_CRASH" ]; then
 		"$CG/crashes/$STAMP"/*.txt > "$CG/crashes/$STAMP/summary.txt" 2>/dev/null
 fi
 
-# 3. Repair
+# 3. Was the power cut before this start?
+#    Normal starts after a power off report "hot reboot" and keep the clock.
+#    After a long press hard reset or an empty battery the kernel reports
+#    "cold boot" and the RTC starts at 1970.
+BOOT_TYPE="unknown"
+echo "$KLOG" | grep -q "fix to hot reboot" && BOOT_TYPE="hot reboot"
+echo "$KLOG" | grep -q "fix to cold boot" && BOOT_TYPE="cold boot"
+RTC_RESET=0
+echo "$KLOG" | grep -qE "setting system clock to 19[0-9][0-9]-" && RTC_RESET=1
+POWER_CUT=0
+{ [ "$BOOT_TYPE" = "cold boot" ] || [ "$RTC_RESET" = 1 ]; } && POWER_CUT=1
+# context of the previous session (nextui.txt still holds its log at this point)
+PREV_SLEEPS=$(grep -c "Entering hybrid sleep" "$LOGS_PATH/nextui.txt" 2>/dev/null)
+case "$PREV_SLEEPS" in ''|*[!0-9]*) PREV_SLEEPS=0 ;; esac
+WIFI=$(grep -m1 '^wifi=' "$MINUI" 2>/dev/null | cut -d= -f2)
+case "$WIFI" in 1) WIFI="on" ;; 0) WIFI="off" ;; *) WIFI="unknown" ;; esac
+
+# 4. Repair
 restore_from_prev() { # $1 name in archive, $2 target
 	[ -s "$PREV_ARCH/$1" ] || return 1
 	[ -f "$2" ] && cp "$2" "$ARCH/$1.damaged" 2>/dev/null
@@ -104,18 +133,46 @@ fi
 	for f in "$MSET" "$MINUI" "$SHARED/$LED" "$RECENT"; do
 		if [ -f "$f" ]; then echo "$(basename "$f"): $(wc -c < "$f") bytes"; else echo "$(basename "$f"): MISSING"; fi
 	done
-	dmesg 2>/dev/null | grep -qi "not properly unmounted" && echo "SD card: was not unmounted cleanly"
+	echo "$KLOG" | grep -qi "not properly unmounted" && echo "SD card: was not unmounted cleanly"
 	[ "$UNSTABLE" = 1 ] && echo "Previous boot: NOT stable, crash assumed"
 	[ -n "$NEW_CRASH" ] && echo "New kernel crash record:$NEW_CRASH (see crashes/$STAMP)"
 	[ -n "$REPAIRED" ] && echo "Restored from boot $PREV:$REPAIRED"
 	[ "$MS_DIFF" = 1 ] && echo "msettings.bin differs from boot $PREV"
+	echo "Boot type: $BOOT_TYPE"
+	[ "$RTC_RESET" = 1 ] && echo "RTC: was reset, the clock started at 1970"
+	echo "Previous session: $PREV_SLEEPS sleep cycle(s), Wi-Fi setting: $WIFI"
+	[ "$POWER_CUT" = 1 ] && echo "Power was cut before this start: a power off that did not complete (long press reset) or an empty battery, see crashes/$STAMP/power-cut.txt"
 	echo
 } >> "$CG/boots.log"
+
+# power cut report, ready to attach to an issue
+if [ "$POWER_CUT" = 1 ]; then
+	mkdir -p "$CG/crashes/$STAMP"
+	{
+		echo "Crash Guard v$CG_VERSION, boot $N"
+		echo "NextUI: $(head -n 1 "$SDCARD_PATH/.system/version.txt" 2>/dev/null)"
+		echo "Device: $DEVICE"
+		echo "Boot type: $BOOT_TYPE"
+		echo "RTC reset: $([ "$RTC_RESET" = 1 ] && echo yes || echo no)"
+		echo "Previous session: $PREV_SLEEPS sleep cycle(s), Wi-Fi setting: $WIFI"
+		echo
+		echo "Kernel lines:"
+		echo "$KLOG" | grep -E "fix to (cold|hot)|setting system clock|not properly unmounted"
+		echo
+		echo "Last 40 lines of the previous NextUI session:"
+		tail -n 40 "$LOGS_PATH/nextui.txt" 2>/dev/null
+	} > "$CG/crashes/$STAMP/power-cut.txt"
+fi
+
+# event log: one line per notable event
+[ "$UNSTABLE" = 1 ] && log_event "previous boot crashed within ${STABLE_AFTER} s${REPAIRED:+, restored:$REPAIRED}"
+[ -n "$NEW_CRASH" ] && log_event "kernel crash record:$NEW_CRASH (crashes/$STAMP)"
+[ "$POWER_CUT" = 1 ] && log_event "power was cut before this start ($BOOT_TYPE$([ "$RTC_RESET" = 1 ] && echo ', RTC reset, date unreliable')), previous session: $PREV_SLEEPS sleep cycle(s), Wi-Fi $WIFI (crashes/$STAMP/power-cut.txt)"
 
 # snapshot (after a repair this is the repaired state)
 cp "$LOGS_PATH"/*.txt "$ARCH/" 2>/dev/null
 cp "$MSET" "$MINUI" "$SHARED/$LED" "$RECENT" "$ARCH/" 2>/dev/null
-dmesg > "$ARCH/dmesg.txt" 2>/dev/null
+echo "$KLOG" > "$ARCH/dmesg.txt"
 
 OLD=$((N - KEEP))
 [ "$OLD" -gt 0 ] && rm -rf "$CG/archive/$(printf "%04d" "$OLD")"

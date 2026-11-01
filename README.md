@@ -29,7 +29,8 @@ Three tools for the NextUI Tools menu:
 
 - keeps a short boot log and snapshots of your settings and logs for the last 20 starts,
 - saves every new kernel crash record (pstore) together with a short `summary.txt`,
-- detects a crash and repairs `recent.txt` and `minuisettings.txt` from the snapshot taken before NextUI could damage them. No reboot is needed for that.
+- detects a crash and repairs `recent.txt` and `minuisettings.txt` from the snapshot taken before NextUI could damage them. No reboot is needed for that,
+- detects starts after the power was cut, for example when a power off did not complete and the device only came back after a long press of the power button, and writes a short report.
 
 **Backup Settings** saves your current settings: `msettings.bin`, `minuisettings.txt` and the LED settings.
 
@@ -63,13 +64,20 @@ To update, extract the new zip the same way and replace the existing files. Cras
 - If display or sound settings were reset as well, it shows "Display and sound changed: run Tools > Restore Settings". Do that before changing anything else.
 - Only run Backup Settings when everything is right again, never right after a crash. The previous backup is kept as a reserve in any case.
 
+## If the device does not turn on
+
+If the Brick Pro does not react to the power button after a shutdown, hold the button for about 20 seconds, then press it again. This forces a hardware reset. In the cases seen so far, the SD card had already been unmounted at that point, so no data was at risk.
+
+Crash Guard recognises the following start and writes `crashes/<start>/power-cut.txt`, a short report with the boot type, the Wi-Fi setting, the number of sleep cycles in the previous session and the end of its log. Please add it to [LoveRetro/NextUI#835](https://github.com/LoveRetro/NextUI/issues/835) together with your NextUI version.
+
 ## Files
 
 | Path | Contents |
 |---|---|
 | `.userdata/tg5040/crash-guard/boots.log` | boot log |
 | `.userdata/tg5040/crash-guard/archive/<start>/` | snapshots: logs, settings, dmesg |
-| `.userdata/tg5040/crash-guard/crashes/<start>/` | kernel crash records and `summary.txt` |
+| `.userdata/tg5040/crash-guard/events.log` | one line per crash or power cut, the quickest overview |
+| `.userdata/tg5040/crash-guard/crashes/<start>/` | kernel crash records with `summary.txt`, or `power-cut.txt` |
 | `.userdata/tg5040/settings-backup/<device>/` | backup from Backup Settings, the previous one in `<device>.previous` |
 | `.userdata/tg5040/.hooks/boot.d/crash-guard.sync.sh` | small hook created by Crash Guard |
 
@@ -89,11 +97,13 @@ At every start Crash Guard takes a snapshot of the files before NextUI touches t
 - After a crash later in a session, only files that are missing or empty are restored, so changes made during a long session are kept.
 - Switching the device off within the first minute after power on counts as an early crash. You only lose changes made in those few seconds.
 - Restore Settings marks its own reboot as intended, so it is not mistaken for a crash.
+- A start counts as a power cut when the kernel reports a cold boot or the clock starts at 1970. Normal starts after a power off are reported as hot reboots with a valid clock. An empty battery leaves the same signature, so check the battery level before reporting.
 
 ## Related issues
 
 - [LoveRetro/NextUI#833](https://github.com/LoveRetro/NextUI/issues/833): settings reset after a crash, analysis and suggested code fixes
 - [LoveRetro/NextUI#837](https://github.com/LoveRetro/NextUI/pull/837): Brick Pro shutdown and sleep hardening
+- [LoveRetro/NextUI#835](https://github.com/LoveRetro/NextUI/issues/835): Brick Pro does not power off cleanly
 - [trimui/firmware_brickpro#4](https://github.com/trimui/firmware_brickpro/issues/4) and [#1](https://github.com/trimui/firmware_brickpro/issues/1): Wi-Fi causes hangs and watchdog reboots
 
 ## Disclaimer
