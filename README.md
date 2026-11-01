@@ -39,6 +39,10 @@ Three tools for the NextUI Tools menu:
 
 Crash Guard does **not** prevent crashes. It limits the damage and collects data. The most effective workaround for the crashes themselves is to switch Wi-Fi off whenever you do not need it.
 
+## Shutdown and sleep problems
+
+Crashes when switching the device off or waking it from sleep are a separate issue. A fix is in [LoveRetro/NextUI#837](https://github.com/LoveRetro/NextUI/pull/837), which is not part of a regular release yet. A test build with this fix is available in the [NextUI nightly repository](https://github.com/LoveRetro/NextUI-nightly/releases/tag/v6.15.0a). It is meant for testing, lacks the other changes of 6.15.0, and the NextUI team asks not to report bugs based on nightly builds. Once #837 is merged, a regular NextUI update is the better choice. Crash Guard works with both.
+
 ## Requirements
 
 - TrimUI Brick Pro running NextUI with boot hook support: 6.15.0 or newer, or the Brick Pro test build v6.15.0a.
@@ -50,6 +54,8 @@ Crash Guard does **not** prevent crashes. It limits the damage and collects data
 2. Extract it to the root of the SD card. Three folders appear in `Tools/tg5040/`.
 3. On the device, open **Tools › Crash Guard** once. The message "Crash Guard enabled" confirms it. It is active from the next start.
 4. Set everything up the way you like it and run **Tools › Backup Settings**.
+
+To update, extract the new zip the same way and replace the existing files. Crash Guard stays enabled.
 
 ## After a crash
 

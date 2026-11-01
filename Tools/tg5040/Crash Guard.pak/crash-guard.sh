@@ -11,6 +11,7 @@
 # msettings.bin cannot be repaired here, because keymon has already loaded it.
 # For that, use Tools > Restore Settings.
 
+CG_VERSION="1.0.1"
 CG="$USERDATA_PATH/crash-guard"
 SHARED="$SHARED_USERDATA_PATH"
 RECENT="$SHARED/.minui/recent.txt"
@@ -98,6 +99,8 @@ fi
 	echo "Uptime:  $(cut -d' ' -f1 /proc/uptime 2>/dev/null) s"
 	echo "Device:  $DEVICE"
 	echo "Version: $(head -n 1 "$SDCARD_PATH/.system/version.txt" 2>/dev/null)"
+	echo "Crash Guard: v$CG_VERSION"
+	echo "SD mount: $(awk -v m="${SDCARD_PATH:-/mnt/SDCARD}" '$2 == m { print $4; exit }' /proc/mounts 2>/dev/null)"
 	for f in "$MSET" "$MINUI" "$SHARED/$LED" "$RECENT"; do
 		if [ -f "$f" ]; then echo "$(basename "$f"): $(wc -c < "$f") bytes"; else echo "$(basename "$f"): MISSING"; fi
 	done
