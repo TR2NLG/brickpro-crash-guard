@@ -7,14 +7,16 @@
 #   1. keeps a short boot log and per boot snapshots of logs and settings,
 #   2. saves new kernel crash records (pstore) to crash-guard/crashes/,
 #   3. after a crash, puts recent.txt and minuisettings.txt back from the
-#      snapshot taken before NextUI could damage them,
+#      snapshot taken before NextUI could damage them. A crash needs evidence:
+#      a new kernel crash record, an SD card that was not unmounted cleanly,
+#      or a power cut. A quick power off from the menu is not a crash.
 #   4. detects starts after the power was cut (a power off that did not
 #      complete and needed a long press reset, or an empty battery) and
 #      records them in crash-guard/events.log.
 # msettings.bin cannot be repaired here, because keymon has already loaded it.
 # For that, use Tools > Restore Settings.
 
-CG_VERSION="1.0.2"
+CG_VERSION="1.0.3"
 CG="$USERDATA_PATH/crash-guard"
 SHARED="$SHARED_USERDATA_PATH"
 RECENT="$SHARED/.minui/recent.txt"
@@ -59,10 +61,11 @@ msg() {
 
 # 1. Did the previous boot stay up for STABLE_AFTER seconds?
 #    crash-guard/stable holds the last boot number that did. No file: treat as stable.
-UNSTABLE=0
+#    A short boot alone is no crash, see the evidence check below.
+SHORT_PREV=0
 STABLE=$(cat "$CG/stable" 2>/dev/null)
 if [ -n "$STABLE" ] && [ "$PREV" -gt 0 ] && [ "$STABLE" != "$PREV" ] && [ -d "$PREV_ARCH" ]; then
-	UNSTABLE=1
+	SHORT_PREV=1
 fi
 
 # 2. New kernel crash records?
@@ -100,7 +103,20 @@ case "$PREV_SLEEPS" in ''|*[!0-9]*) PREV_SLEEPS=0 ;; esac
 WIFI=$(grep -m1 '^wifi=' "$MINUI" 2>/dev/null | cut -d= -f2)
 case "$WIFI" in 1) WIFI="on" ;; 0) WIFI="off" ;; *) WIFI="unknown" ;; esac
 
-# 4. Repair
+# 4. Evidence for a crash
+#    A menu power off unmounts the card cleanly and leaves no kernel record,
+#    so a quick power off after a short boot is not treated as a crash.
+DIRTY=0
+echo "$KLOG" | grep -qi "not properly unmounted" && DIRTY=1
+EVIDENCE=""
+[ -n "$NEW_CRASH" ] && EVIDENCE="$EVIDENCE kernel crash record,"
+[ "$DIRTY" = 1 ] && EVIDENCE="$EVIDENCE SD card not unmounted cleanly,"
+[ "$POWER_CUT" = 1 ] && EVIDENCE="$EVIDENCE power cut,"
+EVIDENCE=${EVIDENCE%,}
+UNSTABLE=0
+[ "$SHORT_PREV" = 1 ] && [ -n "$EVIDENCE" ] && UNSTABLE=1
+
+# 5. Repair
 restore_from_prev() { # $1 name in archive, $2 target
 	[ -s "$PREV_ARCH/$1" ] || return 1
 	[ -f "$2" ] && cp "$2" "$ARCH/$1.damaged" 2>/dev/null
@@ -111,13 +127,13 @@ if [ "$UNSTABLE" = 1 ]; then
 	# crash shortly after start: NextUI was rewriting these files, restore both
 	restore_from_prev recent.txt "$RECENT" && REPAIRED="$REPAIRED recent.txt"
 	restore_from_prev minuisettings.txt "$MINUI" && REPAIRED="$REPAIRED minuisettings.txt"
-elif [ -n "$NEW_CRASH" ] && [ -d "$PREV_ARCH" ]; then
-	# crash later in the session: only replace files that are clearly damaged
+elif [ -n "$EVIDENCE" ] && [ -d "$PREV_ARCH" ]; then
+	# crash or power cut later in the session: only replace files that are clearly damaged
 	[ -s "$RECENT" ] || { restore_from_prev recent.txt "$RECENT" && REPAIRED="$REPAIRED recent.txt"; }
 	[ -s "$MINUI" ] || { restore_from_prev minuisettings.txt "$MINUI" && REPAIRED="$REPAIRED minuisettings.txt"; }
 fi
 MS_DIFF=0
-if { [ "$UNSTABLE" = 1 ] || [ -n "$NEW_CRASH" ]; } && [ -s "$PREV_ARCH/msettings.bin" ] && command -v cmp > /dev/null 2>&1; then
+if [ -n "$EVIDENCE" ] && [ -s "$PREV_ARCH/msettings.bin" ] && command -v cmp > /dev/null 2>&1; then
 	cmp -s "$PREV_ARCH/msettings.bin" "$MSET" || MS_DIFF=1
 fi
 
@@ -133,8 +149,9 @@ fi
 	for f in "$MSET" "$MINUI" "$SHARED/$LED" "$RECENT"; do
 		if [ -f "$f" ]; then echo "$(basename "$f"): $(wc -c < "$f") bytes"; else echo "$(basename "$f"): MISSING"; fi
 	done
-	echo "$KLOG" | grep -qi "not properly unmounted" && echo "SD card: was not unmounted cleanly"
-	[ "$UNSTABLE" = 1 ] && echo "Previous boot: NOT stable, crash assumed"
+	[ "$DIRTY" = 1 ] && echo "SD card: was not unmounted cleanly"
+	[ "$UNSTABLE" = 1 ] && echo "Previous boot: shorter than ${STABLE_AFTER} s and crash evidence:$EVIDENCE"
+	[ "$SHORT_PREV" = 1 ] && [ "$UNSTABLE" = 0 ] && echo "Previous boot: shorter than ${STABLE_AFTER} s, no crash evidence (normal quick power off)"
 	[ -n "$NEW_CRASH" ] && echo "New kernel crash record:$NEW_CRASH (see crashes/$STAMP)"
 	[ -n "$REPAIRED" ] && echo "Restored from boot $PREV:$REPAIRED"
 	[ "$MS_DIFF" = 1 ] && echo "msettings.bin differs from boot $PREV"
@@ -165,7 +182,8 @@ if [ "$POWER_CUT" = 1 ]; then
 fi
 
 # event log: one line per notable event
-[ "$UNSTABLE" = 1 ] && log_event "previous boot crashed within ${STABLE_AFTER} s${REPAIRED:+, restored:$REPAIRED}"
+[ "$UNSTABLE" = 1 ] && log_event "previous boot crashed within ${STABLE_AFTER} s (evidence:$EVIDENCE)${REPAIRED:+, restored:$REPAIRED}"
+[ "$UNSTABLE" = 0 ] && [ -n "$REPAIRED" ] && log_event "damaged files after${EVIDENCE}, restored:$REPAIRED"
 [ -n "$NEW_CRASH" ] && log_event "kernel crash record:$NEW_CRASH (crashes/$STAMP)"
 [ "$POWER_CUT" = 1 ] && log_event "power was cut before this start ($BOOT_TYPE$([ "$RTC_RESET" = 1 ] && echo ', RTC reset, date unreliable')), previous session: $PREV_SLEEPS sleep cycle(s), Wi-Fi $WIFI (crashes/$STAMP/power-cut.txt)"
 

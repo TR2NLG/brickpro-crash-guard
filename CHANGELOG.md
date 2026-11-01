@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.3 (2026-11-01)
+
+- A start shorter than 60 seconds only counts as a crash if there is evidence: a new kernel crash record, an SD card that was not unmounted cleanly, or a power cut. Switching the device off from the menu right after power on no longer triggers a repair.
+- After a power cut or an unclean unmount later in a session, files that are missing or empty are now restored as well.
+- The boot log and `events.log` name the evidence behind every repair.
+
 ## v1.0.2 (2026-11-01)
 
 - Detects starts after the power was cut, for example when a power off did not complete and the device only came back after a long press of the power button. The boot log shows the boot type, an RTC reset, the Wi-Fi setting and the number of sleep cycles in the previous session, and `crashes/<start>/power-cut.txt` holds a short report to attach to an issue.

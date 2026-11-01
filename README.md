@@ -91,11 +91,11 @@ When you report a crash, `summary.txt` and the records in the same folder are wh
 
 ## How crash detection works
 
-At every start Crash Guard takes a snapshot of the files before NextUI touches them, and 60 seconds later it marks that start as stable. If the previous start never reached the mark, or if a new kernel crash record appeared, the previous start ended in a crash.
+At every start Crash Guard takes a snapshot of the files before NextUI touches them, and 60 seconds later it marks that start as stable. A crash needs evidence: a new kernel crash record, an SD card that was not unmounted cleanly, or a power cut.
 
-- After an early crash, both files are restored from the snapshot of the crashed start.
-- After a crash later in a session, only files that are missing or empty are restored, so changes made during a long session are kept.
-- Switching the device off within the first minute after power on counts as an early crash. You only lose changes made in those few seconds.
+- After an early crash (the previous start never reached the mark, and there is evidence), both files are restored from the snapshot of the crashed start.
+- After a crash or a power cut later in a session, only files that are missing or empty are restored, so changes made during a long session are kept.
+- A short start without evidence is not a crash. Switching the device off from the menu right after power on, for example to check the logs or to update, does not trigger a repair.
 - Restore Settings marks its own reboot as intended, so it is not mistaken for a crash.
 - A start counts as a power cut when the kernel reports a cold boot or the clock starts at 1970. Normal starts after a power off are reported as hot reboots with a valid clock. An empty battery leaves the same signature, so check the battery level before reporting.
 
