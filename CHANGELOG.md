@@ -2,7 +2,7 @@
 
 ## v1.0.1 (2026-11-01)
 
-- Boot log now records the Crash Guard version and the mount options of the SD card. The Brick Pro stock firmware mounts the card with `sync`, which matters for how crashes affect files.
+- Boot log now records the Crash Guard version and the mount options of the SD card. The stock firmware mounts the card with `sync`; under NextUI it is mounted without it, so the slow writes reported for spruceOS do not apply to NextUI.
 - README: note on shutdown and sleep problems and the related NextUI fix, plus update instructions.
 
 ## v1.0.0 (2026-11-01)
